@@ -60,7 +60,7 @@ def _generate_bagging_indices(random_state, bootstrap_features,
 
 
 def _parallel_build_estimators(n_estimators, ensemble, X, y, sample_weight,
-                               seeds, total_n_estimators, verbose):
+                               seeds, total_n_estimators, verbose, oversampling):
     """Private function used to build a batch of estimators within a job."""
     # Retrieve settings
     n_samples, n_features = X.shape
@@ -110,12 +110,29 @@ def _parallel_build_estimators(n_estimators, ensemble, X, y, sample_weight,
             estimator.fit(X[:, features], y, sample_weight=curr_sample_weight)
 
         else:
-            estimator.fit((X[indices])[:, features], y[indices])
+            if oversampling == True:
+                np.random.seed(random_state)
+                indices = get_oversampled_index(y=y, ratio=0.3, random_state=random_state)
+                estimator.fit((X[indices])[:, features], y[indices])
+            else:
+                estimator.fit((X[indices])[:, features], y[indices])
 
         estimators.append(estimator)
         estimators_features.append(features)
 
     return estimators, estimators_features
+
+def get_oversampled_index(y, ratio=0.3, random_state=None):
+
+    # separate minority and majority classes
+    idx_bad = sorted(y[y==1].index)
+    idx_good = sorted(y[y==0].index)
+
+    n_bad = int(len(idx_good) * ratio / (1 - ratio))
+    np.random.seed(random_state)
+    idx = np.concatenate((idx_good, np.random.choice(idx_bad, size=n_bad, replace=True)))
+
+    return idx
 
 
 def _parallel_predict_proba(estimators, estimators_features, X, n_classes):
@@ -376,7 +393,8 @@ class BaseBagging(BaseEnsemble, metaclass=ABCMeta):
                 sample_weight,
                 seeds[starts[i]:starts[i + 1]],
                 total_n_estimators,
-                verbose=self.verbose)
+                verbose=self.verbose,
+                oversampling=self.oversampling)
             for i in range(n_jobs))
 
         # Reduce
@@ -588,7 +606,8 @@ class BaggingClassifier(ClassifierMixin, BaseBagging):
                  warm_start=False,
                  n_jobs=None,
                  random_state=None,
-                 verbose=0):
+                 verbose=0,
+                 oversampling=False):
 
         super().__init__(
             base_estimator,
@@ -601,7 +620,8 @@ class BaggingClassifier(ClassifierMixin, BaseBagging):
             warm_start=warm_start,
             n_jobs=n_jobs,
             random_state=random_state,
-            verbose=verbose)
+            verbose=verbose,
+            oversampling=oversampling)
 
     def _validate_estimator(self):
         """Check the estimator and set the base_estimator_ attribute."""
